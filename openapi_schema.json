@@ -1,0 +1,215 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Claude Bridge",
+    "description": "Proxy service that lets this GPT call Claude (Anthropic) and run adversarial review sessions between Claude and OpenAI models.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://claude-bridge-daim.onrender.com"
+    }
+  ],
+  "paths": {
+    "/ask": {
+      "post": {
+        "operationId": "askClaude",
+        "summary": "Ask Claude a question",
+        "description": "Send a prompt to Claude and return its response. Use this when you want Claude's perspective on a question, a second opinion, or a cross-model comparison.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Claude's response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskResponse"
+                }
+              }
+            }
+          },
+          "401": { "description": "Invalid API key" },
+          "503": { "description": "Anthropic API key not configured on the bridge server" }
+        }
+      }
+    },
+    "/adversarial": {
+      "post": {
+        "operationId": "runAdversarialReview",
+        "summary": "Run an adversarial review session",
+        "description": "Run a structured adversarial review where one model proposes and the other challenges. Exchange for N rounds, then receive a final verdict: APPROVED, APPROVED WITH CONDITIONS, or REJECTED with specific blocking flaws. Takes 2–5 minutes for multi-round sessions.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdversarialRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Adversarial session result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdversarialResponse"
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid domain, backend, or round count" },
+          "401": { "description": "Invalid API key" },
+          "503": { "description": "Required API key not configured on the bridge server" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "checkHealth",
+        "summary": "Check bridge configuration status",
+        "description": "Returns which API keys and role prompts are configured. Use this to diagnose setup issues.",
+        "responses": {
+          "200": {
+            "description": "Configuration status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status":               { "type": "string" },
+                    "anthropic_configured": { "type": "boolean" },
+                    "openai_configured":    { "type": "boolean" },
+                    "role_prompts_found":   { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "AskRequest": {
+        "type": "object",
+        "required": ["prompt"],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "The question or task to send to Claude."
+          },
+          "model": {
+            "type": "string",
+            "description": "Claude model name, e.g. 'claude-opus-4-6'. Defaults to server default."
+          },
+          "system_prompt": {
+            "type": "string",
+            "description": "Optional system-level framing for Claude."
+          },
+          "max_tokens": {
+            "type": "integer",
+            "default": 2048,
+            "description": "Maximum tokens in Claude's response."
+          }
+        }
+      },
+      "AskResponse": {
+        "type": "object",
+        "properties": {
+          "response": { "type": "string", "description": "Claude's response text." },
+          "model":    { "type": "string", "description": "The model that responded." }
+        }
+      },
+      "AdversarialRequest": {
+        "type": "object",
+        "required": ["task", "domain"],
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "The task, question, or artifact to review. For code review, paste the code. For design, describe or paste the spec."
+          },
+          "domain": {
+            "type": "string",
+            "enum": ["design", "engineering", "analysis", "code-review"],
+            "description": "Domain determines which role prompts are used. design=UX/product, engineering=systems/architecture, analysis=data/research, code-review=implementation."
+          },
+          "proposer": {
+            "type": "string",
+            "enum": ["claude", "openai"],
+            "default": "claude",
+            "description": "Which model plays the Proposer role (builds the solution)."
+          },
+          "challenger": {
+            "type": "string",
+            "enum": ["claude", "openai"],
+            "default": "openai",
+            "description": "Which model plays the Challenger role (finds every flaw)."
+          },
+          "proposer_model": {
+            "type": "string",
+            "description": "Specific model name for the Proposer, e.g. 'claude-opus-4-6' or 'gpt-4o'. Optional."
+          },
+          "challenger_model": {
+            "type": "string",
+            "description": "Specific model name for the Challenger. Optional."
+          },
+          "rounds": {
+            "type": "integer",
+            "default": 2,
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Number of critique-defense cycles. 1=quick, 2=standard, 3=thorough."
+          },
+          "show_transcript": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include the full debate transcript in the response. Set false to return only the verdict and final proposal."
+          }
+        }
+      },
+      "AdversarialResponse": {
+        "type": "object",
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "description": "The Challenger's final verdict. Contains APPROVED, APPROVED WITH CONDITIONS, or REJECTED with specifics."
+          },
+          "final_proposal": {
+            "type": "string",
+            "description": "The Proposer's final output after all rounds of defense."
+          },
+          "transcript": {
+            "type": "string",
+            "nullable": true,
+            "description": "Full debate transcript in markdown. Null if show_transcript was false."
+          },
+          "domain":     { "type": "string" },
+          "proposer":   { "type": "string", "description": "backend/model used as Proposer." },
+          "challenger": { "type": "string", "description": "backend/model used as Challenger." },
+          "rounds":     { "type": "integer" }
+        }
+      }
+    }
+  },
+  "security": [
+    { "BearerAuth": [] }
+  ]
+}
